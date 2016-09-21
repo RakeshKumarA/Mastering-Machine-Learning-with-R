@@ -1,0 +1,50 @@
+# Chapter 1. A Process for Success
+
+## The process
+
+* Business Understanding
+    + Identify the business objective
+    + Assess the situation
+    + Determine the analytical goals
+    + Produce a project plan
+
+* Data understanding
+    + Collect the data
+    + Describe the data
+    + Explore the data
+    + Verify the data quality
+    
+* Data preparation
+    + Select the data
+    + Clean the data
+    + Construct the data
+    + Integrate the data
+    + Format the data
+
+* Modeling
+    + Select a modeling technique
+    + Generate a test design
+    + Build a model
+    + Assess a model
+
+* Evaluation
+    + Evaluate the results
+    + Review the process
+    + Determine the next steps
+
+* Deployment
+    + Deploying the plan
+    + Monitoring and maintenance of the plan
+    + Producing the final report
+    + Reviewing the project
+```{r}
+
+```
+
+
+
+```{r, echo=FALSE}
+
+```
+
+
