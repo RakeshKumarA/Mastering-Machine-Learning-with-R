@@ -1,0 +1,254 @@
+# Chapter 3: Logistic Regression and Discriminant Analysis
+
+###Logistic regression
+
+Classification problem is best modeled with the probabilities that are bound by 0 and 1.
+
+The logistic function used in logistic regression is as follows:
+
+P(Y) = e^(B0 + B1X)/(1 + e^(B0 + B1X))
+
+The logistic function can be turned to odds with the formulation of Probability (Y) / 1 – Probability (Y). if the probability of Brazil winning the World Cup is 20 percent, then the odds are 0.2 / 1 - 0.2, which is equal to 0.25
+
+To translate the odds back to probability, take the odds and divide by one plus the odds. The World Cup example is thus, 0.25 / 1 + 0.25, which is equal to 20 percent.
+
+#### log (P(Y)/1 – P(Y)) = Bo + B1x
+
+The coefficients are estimated using a maximum likelihood.
+
+### Business understanding
+
+Wisconsin Breast Cancer Data. Goal of collecting the data was to identify whether a tumor biopsy was malignant or benign
+
+### Data understanding and preparation
+
+This dataset consists of tissue samples from 699 patients. It is in a data frame with 11 variables, as follows:
+
+ID: This is the sample code number
+V1: This is the thickness
+V2: This is the uniformity of the cell size
+V3: This is the uniformity of the cell shape
+V4: This is the marginal adhesion
+V5: This is the single epithelial cell size
+V6: This is the bare nucleus (16 observations are missing)
+V7: This is the bland chromatin
+V8: This is the normal nucleolus
+V9: This is the mitosis
+class: This is the tumor diagnosis benign or malignant; this will be the outcome that we are trying to predict.
+
+The medical team has scored and coded each of the nine features on a scale of 1 to 10.
+
+``` {r, warning=FALSE, message=FALSE}
+require(MASS)
+
+data("biopsy")
+
+biopsy$ID <- NULL ## Getting rid of Id column
+
+names(biopsy) = c("thick", "u.size", "u.shape", "adhsn", "s.size", "nucl", "chrom", "n.nuc", "mit", "class")
+
+str(biopsy)
+```
+
+Now, we will delete the missing observations. As there are only 16 observations with the missing data, it is safe to get rid of them as they account for only two percent of all the observations
+
+``` {r}
+biopsy.v2 = na.omit(biopsy) ##Deletes all the missing values
+
+```
+
+There are a number of ways in which we can understand the data visually in a classification problem. One of the things that I like to do in these situations is examine the boxplots of the features that are split by the classification outcome. 
+
+We will use melt() function of reshape2() package to melt the features which will allow the creation of a matrix of boxplots
+
+```{r,warning=FALSE,message=FALSE}
+require(reshape2)
+require(ggplot2)
+
+biop.m <- melt(biopsy.v2, id.var="class")
+
+ggplot(data=biop.m, aes(x=class, y=value)) + geom_boxplot() +facet_wrap(~variable,ncol = 3)
+```
+
+Interpret Boxplot:
+
+* Box : Interquartile Range
+* Thick line in between: Median
+* Ends of Lines: 1.5 times IQR
+* Dots outside: Outliers.
+
+Observing box plots, it appears "nucl" is definitely significant as the medians are well seperated, it also appears "mit" values are not that seperated and may be irrelevant. We can do further analsis.
+
+We can see the correlations
+
+``` {r,warning=FALSE,message=FALSE}
+
+require(corrplot)
+
+bc = cor(biopsy.v2[ ,1:9])
+
+corrplot.mixed(bc)
+```
+
+Seems like U.size and u.shape are highly correlated. We may suffer from collinearity of variables. We may have to use VIF analysis.
+
+Let's first divide training and testing data.
+
+```{r,warning=FALSE,message=FALSE}
+set.seed(123)
+require(caTools)
+sample <- sample.split(biopsy.v2,SplitRatio = 0.7)
+train <- subset(biopsy.v2, sample == TRUE)
+test <- subset(biopsy.v2, sample == FALSE)
+
+str(test)
+
+## To see if outcomes are well balanced.
+
+table(train$class) 
+
+table(test$class) ## Looks like well balanced.
+```
+
+### Modeling and evaluation
+
+First let's try with Logistic Regression
+
+```{r,warning=FALSE,message=FALSE}
+full.fit = glm(class~., family=binomial, data=train)
+
+summary(full.fit)
+```
+
+We can observe only 2 variables are significant. We can check now for confidence intervals using confint() function
+
+```{r,warning=FALSE,message=FALSE}
+confint(full.fit)
+```
+
+We can get the co-efficients of logistic regression as follows
+
+```{r,warning=FALSE,message=FALSE}
+exp(coef(full.fit))
+```
+The interpretation of an odds ratio is the change in the outcome odds resulting from a unit change in the feature.
+
+If the value is greater than one, it indicates that as the feature increases, the odds of the outcome increase.
+
+In this example, all the features except u.size will increase the log odds.
+
+One of the issues pointed out during the data exploration was the potential issue of multicollinearity. It is possible to produce the VIF statistics that we did in linear regression with a logistic model in the following way
+
+```{r,warning=FALSE,message=FALSE}
+require(car)
+vif(full.fit)
+```
+
+None of the values are greater than the VIF rule of thumb statistic of five, so collinearity does not seem to be a problem.
+
+let's produce some code to look at how well this model does on both the train and test sets.
+
+On Train Data:
+
+```{r,warning=FALSE,message=FALSE}
+train$probs <- predict(full.fit, type="response")
+
+train$probs <- ifelse(train$probs > 0.5, "malignant", "benign")
+
+table(train$probs,train$class)
+
+mean(train$probs == train$class)
+
+```
+
+On Test Data:
+
+```{r,warning=FALSE,message=FALSE}
+
+test$probs <- predict(full.fit, newdata = test, type="response")
+
+test$probs <- ifelse(test$probs > 0.5, "malignant", "benign")
+
+table(test$probs,test$class)
+
+mean(test$probs == test$class)
+
+```
+
+##### 97.5 % is great. But is there any other algorithm that does much better job?
+
+#### Logistic regression with cross-validation
+
+The purpose of cross-validation is to improve our prediction of the test set and minimize the chance of over fitting.
+
+With the K-fold cross-validation, the dataset is split into K equal-sized parts. The algorithm learns by alternatively holding out one of the K-sets and fits a model to the other K-1 parts and obtains predictions for the left out K-set.The results are then averaged so as to minimize the errors and appropriate features selected.
+
+An R package that will automatically do CV for logistic regression is the bestglm package. This package is dependent on the leaps package that we used for linear regression. 
+
+```{r,warning=FALSE,message=FALSE}
+require(bestglm)
+
+```
+
+We will need our outcome coded to 0 or 1. If left as a factor, it will not work.
+
+```{r,warning=FALSE,message=FALSE}
+
+train$y <- ifelse(train$class == "malignant",1,0)
+head(train$y) ## Double checking that it worked
+
+```
+
+Next is column y should be last and all the columns that are not used  should be removed.
+
+```{r,warning=FALSE,message=FALSE}
+
+biopsy.cv <- train[ ,-10:-11]
+
+head(biopsy.cv)
+
+## To run validation
+bestglm(Xy = biopsy.cv, IC="CV", CVArgs=list(Method="HTF", K=10, REP=1), family=binomial)
+
+```
+
+We can put these features in glm() and then see how well the model did on the train and test sets. 
+
+```{r,warning=FALSE,message=FALSE}
+
+reduce.fit = glm(class~thick+u.size+nucl, family=binomial, data=train)
+
+train$cv.probs = predict(reduce.fit, type="response")
+
+train$cv.predict <- ifelse(train$cv.probs>0.5, "malignant","benign")
+
+table(train$cv.predict, train$class)
+```
+Let's check for test set
+
+```{r,warning=FALSE,message=FALSE}
+
+test$cv.probs = predict(reduce.fit, newdata=test, type="response")
+
+test$predict <- ifelse(test$cv.probs>0.5, "malignant","benign")
+
+table(test$predict, test$class)
+```
+
+The reduced feature model again produced more false negatives than when all the features were included. This is quite disappointing, but all is not lost. We can utilize the bestglm package again, this time using the best subsets with the information criterion set to BIC:
+
+```{r,warning=FALSE,message=FALSE}
+
+bestglm(Xy= biopsy.cv, IC="BIC", family=binomial)
+
+bic.fit=glm(class~thick+adhsn+nucl+n.nuc, family=binomial, data=train)
+
+test$bic.probs = predict(bic.fit, newdata=test, type="response")
+
+test$bic.predict = rep("benign", 204)
+
+test$bic.predict[test$bic.probs>0.5]="malignant"
+
+table(test$bic.predict, test$class)
+```
+
