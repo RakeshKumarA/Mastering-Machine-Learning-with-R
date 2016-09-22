@@ -1,0 +1,456 @@
+# Chapter 2. Linear Regression – The Blocking and Tackling of Machine Learning
+
+## Univariate linear regression
+
+The model for this can be written as, Y = B0 + B1x + e. 
+
+The least squares approach chooses the model parameters that minimize the Residual Sum of Squares (RSS) of the predicted y values versus the actual Y values. 
+
+For a simple example, let's say we have the actual values of Y1 and Y2 equal to 10 and 20 respectively, along with the predictions of y1 and y2 as 12 and 18. To calculate RSS, we add the squared differences RSS = (Y1 – y1)2 + (Y2 – y2)2, which, with simple substitution, yields (10 – 12)2 + (20 – 18)2 = 8.
+
+
+
+```{r}
+data("anscombe")
+
+attach(anscombe)
+
+anscombe
+
+cor(x1, y1) ##Correlation of x1 and y1
+
+cor(x2, y2) ##Correlation of x2 and y2
+
+```
+
+```{r, echo=TRUE}
+par(mfrow=c(2,2)) #create a 2x2 grid for plotting
+
+plot(x1, y1, main="Plot 1")
+
+plot(x2, y2, main="Plot 2")
+
+plot(x3, y3, main="Plot 3")
+
+plot(x4, y4, main="Plot 4")
+```
+
+#### As we can see, Plot 1 appears to have a true linear relationship, Plot 2 is curvilinear, Plot 3 has a dangerous outlier, and Plot 4 is driven by the one outlier. There you have it, a cautionary tale of sorts.
+
+### Business understanding
+
+Let's Analyze another example. Snake Dataset
+
+
+
+```{r, warning=FALSE}
+require(alr3)
+
+data("snake")
+
+dim(snake)
+
+names(snake) <- c("Content", "Yield")
+
+attach(snake)
+
+head(snake)
+
+```
+```{r, echo=TRUE}
+par(mfrow=c(1,1)) #create a 1x1 grid for plotting
+
+plot(Content, Yield, xlab="water content of snow", ylab="water yield")
+```
+
+There are potential two outliers that might drive linear to be a non linear relationship
+
+To perform a linear regression in R, one uses the lm()
+
+```{r}
+yield.fit = lm(Yield~Content)
+
+summary(yield.fit)
+
+```
+
+####Yield = 0.72538 + 0.49808 * content
+
+We can observe Summary yield "Adjusted R Squared" and "Multiple R Squared".
+The Adjusted R-squared will be covered under the multivariate regression topic.
+We see that  Multiple R Squared = 0.8709, which ranges from 0 and 1 and measures the strength of the association between X and Y.
+
+The interpretation in this case is that 87 percent of the variation in the water yield can be explained by the water content of snow
+
+On a side note, R-squared is nothing more than the correlation coefficient of [X, Y] squared.
+
+We can add the best fit line as follows
+
+```{r, echo=TRUE}
+plot(Content, Yield, xlab="water content of snow", ylab="water yield")
+
+abline(yield.fit, lwd=3, col="red")
+
+```
+
+#### Assumptions in Linear Regression
+
+* Linearity: This is a linear relationship between the predictor and the response variables. If this relationship is not clearly present, transformations (log, polynomial, exponent and so on) of the X or Y may solve the problem.
+
+* Non-correlation of errors: If the errors are correlated, you run the risk of creating a poorly specified model.
+
+* Homoscedasticity: The variance of the errors is constant across the different values of inputs. Violations of this assumption can create biased coefficient estimates
+
+* No collinearity: There should be no correlation between the features. This, again, can lead to biased estimates.
+
+* Presence of outliers: Outliers can severely skew the estimation and, ideally, must be removed prior to fitting a model using linear regression; this again can lead to a biased estimate.
+
+
+Best way to check the assumptions are is by producing plots.
+
+```{r, echo=TRUE}
+par(mfrow=c(2,2))
+
+plot(yield.fit)
+
+```
+
+#### The two plots on the left allow us to examine the homoscedasticity of errors and nonlinearity
+
+Common shapes that violates homoscedasticity are when errors appear
+
+* u-shaped
+* inverted u-shaped
+* cluster close together on the left side of the plot and become wider as the fitted values increase (a funnel shape)
+
+Nothing of that sort appears in our model (we also have only 17 obs)
+
+#### Normal Q-Q plot to determine if the residuals are normally distributed
+
+The outliers (observations 7, 9, and 10), may be causing a violation of the assumption
+
+#### The Residuals vs Leverage plot can tell us what observations, if any, are unduly influencing the model; in other words, if there are any outliers we should be concerned about
+
+The statistic is Cook's distance or Cook's D, and it is generally accepted that a value greater than one should be worthy of further inspection
+
+The easy way out would be to simply delete the observation, in this case number 9, and redo the model.
+
+If we just delete observation 9, then maybe observations 10 and 13 would fall outside the band of greater than 1
+
+However, a better option may be to transform the predictor and/or the response variables
+
+#### R does not provide confidence intervals to the default Q-Q plot, and given our concerns in looking at the base plot, we should check the confidence intervals
+
+```{r, echo=TRUE}
+par(mfrow=c(1,1))
+qqPlot(yield.fit)
+
+```
+
+##### According to the plot, the residuals are normally distributed. I think this can give us some confidence to select the model with all the observations. Clear rationale and judgment would be needed to attempt other models. If we could clearly reject the assumption of normally distributed errors, then we would probably have to examine the variable transformations and/or observation deletion.
+
+
+
+## Multivariate linear regression
+
+Y = B0 + B1x1 +...Bnxn + e, where the predictor variables (features) can be from 1 to n.
+
+#### Data understanding and preparation
+
+```{r}
+data("water")
+
+str(water)
+```
+
+Excluding the Year
+
+```{r}
+socal.water = water[ ,-1] #new dataframe with the deletion of column 1
+
+head(socal.water)
+```
+
+With all the features being quantitative, it makes sense to look at the correlation statistics and then produce a matrix of scatterplots.
+
+The correlation coefficient or Pearson's r, is a measure of both the strength and direction of the linear relationship between two variables. The statistic will be a number between -1 and 1 where -1 is the total negative correlation and +1 is the total positive correlation.
+
+```{r}
+water.cor <- cor(socal.water)
+
+water.cor
+```
+
+We can examine correlation using Corrplot package
+
+```{r, echo=TRUE, warning=FALSE}
+require(corrplot)
+
+corrplot(water.cor, method="ellipse")
+```
+
+### Modeling and evaluation
+
+We will discuss the best subsets regression methods stepwise, using the "leaps" package.
+
+#### Forward stepwise selection
+
+This starts with a model that has zero features.
+
+It then adds the features one at a time until all the features are added. 
+
+A selected feature is added in the process that creates a model with the lowest RSS. So in theory, the first feature selected should be the one that explains the response variable better than any of the others, and so on.
+
+#### PS: It is important to note that adding a feature will always decrease RSS and increase R-squared, but will not necessarily improve the model fit and interpretability.
+
+#### Backward stepwise regression
+This begins with all the features in the model and removes the least useful one at a time.
+
+A hybrid approach is available where the features are added through forward stepwise regression, but the algorithm then examines if any features that no longer improve the model fit can be removed. 
+
+Once the model is built, the analyst can examine the output and use various statistics to select the features they believe provide the best fit.
+
+Stepwise can produce biased regression coefficients. Best subsets regression can be a satisfactory alternative to the stepwise methods for feature selection. In best subsets regression, the algorithm fits a model for all the possible feature combinations
+
+Let's start with Leaps package and build stepwise model
+
+```{r, warning=FALSE}
+require(leaps)
+
+fit <- lm(BSAAM~., data=socal.water)
+
+summary(fit)
+```
+
+We should check for variables that are significant. 
+
+We can see "OPRC" and "OPSLAKE" significant but "OPBPC"not significant even though highly correlated with response variable.
+
+This is because with "OPRC" and "OPSLAKE", "OPBPC" is not adding any statisitical significance to the model.
+
+Creating a best subset using regsubsets() function of leaps package
+
+```{r, warning=FALSE}
+sub.fit <- regsubsets(BSAAM~., data=socal.water)
+
+best.summary <- summary(sub.fit)
+
+names(best.summary)
+```
+
+We can use which.min() and which.max() to find min and max values.
+
+```{r, warning=FALSE}
+which.min(best.summary$rss)
+```
+
+This is obvious because 6 is max number of inputs and RSS keeps reducing by adding features and also increases R-squared. We need to effectively find relavant features.
+
+For feature selection there are 4 statistical methods.
+
+* Aikake's Information Criterion (AIC): This should be low as possible
+* Mallow's Cp (CP): This should be low as possible
+* Bayesian Information Criterion (BIC): This should be low as possible
+* Adjusted R-squared: As high as possible
+
+#### The purpose of these statistics is to create as parsimonious a model as possible, in other words, penalize model complexity.
+
+In a linear model, AIC and Cp are proportional to each other, so we will only concern ourselves with Cp
+
+BIC tends to select the models with fewer variables than Cp, so we will compare both. To do so, we can create and analyze two plots side by side
+
+```{r, warning=FALSE}
+par(mfrow=c(1,2))
+
+plot(best.summary$cp, xlab="number of features", ylab="cp")
+
+plot(sub.fit, scale="Cp")
+```
+
+Left plot shows Cp is lowest with 3 features and right plot shows which are those plots. We can also do this using which.min() function.
+
+```{r, warning=FALSE}
+which.min(best.summary$cp)
+
+which.max(best.summary$adjr2)
+```
+
+Now we can recreate the model using the above mentioned 3 features.
+
+```{r, warning=FALSE}
+best.fit = lm(BSAAM~APSLAKE+OPRC+OPSLAKE, data=socal.water)
+
+summary(best.fit)
+```
+
+##### With the three-feature model, F-statistic and all the t-tests have significant p-values. Having passed the first test, we can produce our diagnostic plots:
+
+```{r, warning=FALSE}
+par(mfrow=c(2,2))
+
+plot(best.fit)
+
+```
+
+##### Looking at the plots, it seems safe to assume that the residuals have a constant variance and are normally distributed. 
+
+To investigate the issue of collinearity, one can call up the Variance Inflation Factor (VIF) statistic.
+
+VIF = (Variance of model with all features)/(variance of model with itself)
+
+VIF = 1/(1-Ri-Squared), Ri-squared - R-square of feature of interest i.
+
+Minimum value of VIF is 1 (No Collinearity), any value > 5 or 10 needs to inspected.
+
+Now let's check the VIF of features of the model
+
+```{r, warning=FALSE}
+vif(best.fit)
+
+```
+
+"OPRC" and "OPSLAKE" was correlated when seen in cor plot. Let's again see the correlation
+
+```{r, warning=FALSE}
+par(mfrow=c(1,1))
+
+plot(socal.water$OPRC, socal.water$OPSLAKE, xlab="OPRC", ylab="OPSLAKE")
+
+```
+
+The simple solution to address collinearity is to drop the variables to remove the problem, without compromising the predictive ability.
+
+If we look at the adjusted R-squared from the best subsets
+
+```{r, warning=FALSE}
+best.summary$adjr2 #adjusted r-squared values
+
+```
+
+We can see that the two-variable model of APSLAKE and OPSLAKE produced a value of 0.90, while adding OPRC only marginally increased it to 0.92
+
+Let's have a look at the two-variable model and test its assumptions, as follows:
+
+```{r, warning=FALSE}
+fit.2 = lm(BSAAM~APSLAKE+OPSLAKE, data=socal.water)
+
+summary(fit.2)
+
+par(mfrow=c(2,2))
+
+plot(fit.2)
+
+```
+
+
+The model is significant, and the diagnostics do not seem to be a cause for concern
+
+Checking Collinearity
+
+```{r, warning=FALSE}
+vif(fit.2)
+
+```
+
+You can formally test the assumption of the constant variance of errors in R using Breusch-Pagan (BP) test. The BP test has the null hypotheses that the error variances are zero versus the alternative of not zero
+
+We need to load lmtest package
+
+```{r, warning=FALSE}
+require(lmtest)
+bptest(fit.2)
+
+```
+
+We do not have evidence to reject the null that implies the error variances are zero because p-value = 0.9977. The BP = 0.0046 value in the summary of the test is the chi-squared value.
+
+
+A scatterplot of the Predicted vs. Actual values can be done in base R using the fitted values from the model and the response variable values as follows:
+
+```{r, warning=FALSE}
+par(mfrow=c(1,1))
+plot(fit.2$fitted.values, socal.water$BSAAM,xlab="predicted", ylab="actual", main="Predicted vs.Actual")
+
+```
+
+Let's do good graphics using ggplot2 package
+
+```{r, warning=FALSE}
+socal.water$Actual <- water$BSAAM
+
+socal.water$Forecast <- predict(fit.2)
+
+require(ggplot2)
+
+ggplot(socal.water, aes(x=Forecast, y=Actual)) +geom_point() + geom_smooth(method=lm) + labs(title = "Forecast versus Actuals")
+
+```
+
+## Other Linear Model Considerations
+
+* Qualitative feature
+* Interaction term
+
+#### Qualitative feature
+
+A qualitative feature, also referred to as a factor, can take on two or more levels such as Male/Female or Bad/Neutral/Good
+
+If we have a feature with two levels, say gender, we can create a dummy variable with "0" for Male and "1" for female.
+Y = B0 for Male and
+Y = B0 + B1X for Female.
+
+But when number of features increases we will fall in dummy variable trap, which results in perfect multicollinearity.
+
+```{r, warning=FALSE}
+
+require(ISLR)
+
+data("Carseats")
+
+str(Carseats)
+```
+
+Let's only consider Advertisement and Shelveloc as the parameters.
+
+```{r, warning=FALSE}
+
+sales.fit = lm(Sales~Advertising+ShelveLoc, data=Carseats)
+
+summary(sales.fit)
+```
+
+If the shelving location is good, the estimate of sales is almost double than when the location is bad, given the intercept of 4.89662. 
+
+To see how R codes the indicator features, you can use the contrasts()
+
+```{r, warning=FALSE}
+
+contrasts(Carseats$ShelveLoc)
+```
+
+
+#### Interaction term
+
+Two features interact if the effect on the prediction of one feature depends on the value of the other feature. 
+
+Y = B0 + B1x + B2x + B1B2x + e.
+
+```{r, warning=FALSE}
+
+require(MASS)
+
+data("Boston")
+
+str(Boston)
+```
+
+Interacting lstat and Age:
+
+```{r, warning=FALSE}
+
+value.fit = lm(medv~lstat*age, data=Boston)
+
+summary(value.fit)
+```
+
+lstat is highly significant but age is not. But we can observe interaction term is also significant.
