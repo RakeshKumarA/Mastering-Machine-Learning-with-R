@@ -1,0 +1,353 @@
+# Chapter 5. More Classification Techniques – KNN and SVM
+
+## K-Nearest Neighbors
+
+It is clear that the selection of k for the Nearest Neighbors is critical. If k is too small, then you may have a high variance on the test set observations even though you have a low bias. On the other hand, as k grows you may decrease your variance but the bias may be unacceptable. Cross-validation is necessary to determine the proper k.
+
+## Support Vector Machines
+
+## Data understanding and preparation
+
+
+```{r,message=FALSE,warning=FALSE}
+##Loading package
+library(class) #k-nearest neighbors
+library(kknn) #weighted k-nearest neighbors
+library(e1071) #SVM
+library(caret) #select tuning parameters
+library(MASS) # contains the data
+library(reshape2) #assist in creating boxplots
+library(ggplot2) #create boxplots
+library(kernlab) #assist with SVM feature selection
+library(pROC)
+
+```
+
+Load Data
+
+```{r,message=FALSE,warning=FALSE}
+data("Pima.tr")
+data("Pima.te")
+str(Pima.tr)
+str(Pima.te)
+```
+
+Let's combine both data for some data analysis
+
+```{r,message=FALSE,warning=FALSE}
+pima <- rbind(Pima.tr,Pima.te)
+str(pima)
+```
+
+Let's melt data to check for some patterns using box plot.
+
+```{r,message=FALSE,warning=FALSE}
+pima.melt = melt(pima, id.var="type")
+
+ggplot(data=pima.melt, aes(x=type, y=value)) + geom_boxplot() + facet_wrap(~variable, ncol=2)
+
+```
+
+
+Since data is in a very differnt scale, we need to scale everything to mean 0 and SD = 1 using scale function.
+
+Additionally, while doing KNN, it is important to have the features on the same scale with a mean of zero and a standard deviation of one. If not, then the distance calculations in the nearest neighbor calculation are flawed.
+
+
+
+```{r,message=FALSE,warning=FALSE}
+pima.scale = as.data.frame(scale(pima[,-8]))
+
+str(pima.scale)
+
+pima.scale$type <- pima$type
+
+pima.scale.melt = melt(pima.scale, id.var="type")
+
+ggplot(data=pima.scale.melt, aes(x=type, y=value)) +geom_boxplot() + facet_wrap(~variable, ncol=2)
+```
+
+Let's check for correlation
+
+```{r,message=FALSE,warning=FALSE}
+require(corrplot)
+cor(pima.scale[-8])
+corrplot(cor(pima.scale[-8]))
+
+```
+
+There are a couple of correlations to point out, npreg/age and skin/bmi. Multi-collinearity is generally not a problem with these methods, assuming that they are properly trained and the hyperparameters are tuned.
+
+I think we are now ready to create the train and test sets, but before we do so, I recommend that you always check the ratio of Yes and No in our response. 
+
+It is important to make sure that you will have a balanced split in the data, which may be a problem if one of the outcomes is sparse. This can cause a bias in a classifier between the majority and minority classes. There are no hard and fast rules on what is an improper balance. A good rule of thumb is that you strive for—at least—a 2:1 ratio in the possible outcomes 
+
+```{r,message=FALSE,warning=FALSE}
+table(pima.scale$type)
+
+set.seed(502)
+
+ind = sample(2, nrow(pima.scale), replace=TRUE, prob=c(0.7,0.3))
+
+train = pima.scale[ind==1,]
+test = pima.scale[ind==2,]
+str(train)
+str(test)
+
+```
+
+
+## Modeling and evaluation
+
+## KNN modeling
+
+It is critical to select the most appropriate parameter (k or K) when using this technique. Let's put the caret package to good use again in order to identify k.
+
+```{r,message=FALSE,warning=FALSE}
+
+grid1 = expand.grid(.k=seq(2,20, by=1))
+
+control = trainControl(method="cv")
+
+set.seed(502)
+
+knn.train = train(type~., data=train, method="knn", trControl=control, tuneGrid=grid1)
+
+knn.train
+
+## Our method produced K = 8 but text book says k = 17
+knn.test = knn(train[,-8], test[,-8], train[,8], k=17)
+
+## Confusion matrix
+table(knn.test, test$type)
+
+## Accuracy
+(77 + 28) / 147 
+
+## Calculate Kappa
+
+prob.agree = (77+28)/147 #accuracy
+
+prob.chance = ((77+26)/147) * ((77+16)/147)
+
+kappa = (prob.agree - prob.chance) / (1 - prob.chance)
+
+kappa
+```
+
+The kappa statistic at 0.49 is what we achieved with the train set.
+
+Value of K          Strength of Agreement
+
+<0.20                   Poor
+
+0.21-0.40               Fair
+
+0.41-0.60               Moderate
+
+0.61-0.80               Good
+
+0.81-1.00               Very good
+
+With our kappa only moderate and with an accuracy just over 70 percent on the test set, we should see if we can perform better by utilizing weighted neighbors.
+
+A weighting schema increases the influence of neighbors that are closest to an observation versus those that are further away. The further away the observation is from a point in space, the more its influence is penalized.
+
+For this technique, we will use the kknn package and its train.kknn() function to select the optimal weighting scheme.
+
+The train.kknn() function uses LOOCV that we examined in the prior chapters in order to select the best parameters for the optimal k neighbors, one of the two distance measures, and a kernel function.
+
+As for the weighting of the distances, many different methods are available. For our purpose, the package that we will use has ten different weighting schemas, which includes the unweighted ones. They are rectangular (unweighted), triangular, epanechnikov, biweight, triweight, cosine, inversion, gaussian, rank, and optimal.
+
+For simplicity, let's focus on just two: triangular and epanechnikov. 
+
+* The triangular weighting method multiplies the observation distance by one minus the distance.
+* With epanechnikov, the distance is multiplied by ¾ times (one minus the distance two).
+
+For our problem, we will incorporate these weighting methods along with the standard unweighted version for comparison purposes.
+
+After specifying a random seed, we will create the train set object with kknn(). This function asks for the maximum number of k values (kmax), distance (one is equal to Euclidian and two is equal to absolute), and kernel. For this model, kmax will be set to 25 and distance will be 2:
+
+```{r,message=FALSE,warning=FALSE}
+require(kknn)
+set.seed(123)
+
+kknn.train = train.kknn(type~., data=train, kmax=25, distance=2, kernel=c("rectangular", "triangular", "epanechnikov"))
+
+plot(kknn.train)
+## Unweighted has the least missclassification with K = 19 seeing the plot
+
+kknn.train
+
+```
+
+So, with this data, weighting the distance does not improve the model accuracy. There are other weights that we could try, but as I tried these other weights, the results that I achieved were not more accurate than these.
+
+
+## SVM modeling
+
+We will use the e1071 package to build our SVM models. We will start with a linear support vector classifier and then move on to the nonlinear versions.
+
+The e1071 package has a nice function for SVM called tune.svm(), which assists in the selection of the tuning parameters/kernel functions.
+
+
+```{r,message=FALSE,warning=FALSE}
+require(e1071)
+
+linear.tune = tune.svm(type~., data=train, kernel="linear", cost=c(0.001, 0.01, 0.1, 1,5,10))
+
+summary(linear.tune)
+
+best.linear = linear.tune$best.model
+
+tune.test = predict(best.linear, newdata=test)
+
+table(tune.test, test$type)
+
+(82 + 30)/147
+```
+
+The linear support vector classifier has slightly outperformed KNN on both the train and test sets.
+
+We will now see if non-linear methods will improve our performance and also use cross-validation to select tuning parameters.
+
+The first kernel function that we will try is polynomial, and we will be tuning two parameters: a degree of polynomial (degree) and kernel coefficient (coef0). The polynomial order will be 3, 4, and 5 and the coefficient will be in increments from 0.1 to 4, 
+
+```{r,message=FALSE,warning=FALSE}
+set.seed(123)
+
+poly.tune = tune.svm(type~., data=train, kernel="polynomial", degree=c(3,4,5), coef0=c(0.1,0.5,1,2,3,4))
+
+summary(poly.tune)
+
+```
+
+The model has selected degree of 3 for the polynomial and coefficient of 0.1. Just as the linear SVM, we can create predictions on the test set with these parameters,
+
+```{r,message=FALSE,warning=FALSE}
+best.poly = poly.tune$best.model
+
+poly.test = predict(best.poly, newdata=test)
+
+table(poly.test, test$type)
+
+(81 + 26)/147
+```
+
+This did not perform quite as well as the linear model.
+
+We will now run the radial basis function. In this instance, the one parameter that we will solve for is gamma, which we will examine in increments of 0.1 to 4. 
+* If gamma is too small, the model will not capture the complexity of the decision boundary; 
+* If it is too large, the model will severely overfit:
+
+```{r,message=FALSE,warning=FALSE}
+set.seed(123)
+
+rbf.tune = tune.svm(type~., data=train, kernel="radial", gamma=c(0.1,0.5,1,2,3,4))
+
+summary(rbf.tune)
+
+best.rbf = rbf.tune$best.model
+
+rbf.test = predict(best.rbf, newdata=test)
+
+table(rbf.test, test$type)
+
+(73 + 21)/147
+
+```
+
+Performance is degrading. Let's try with Sigmoid.
+
+```{r,message=FALSE,warning=FALSE}
+set.seed(123)
+
+sigmoid.tune = tune.svm(type~., data=train, kernel="sigmoid", gamma=c(0.1,0.5,1,2,3,4), coef0=c(0.1,0.5,1,2,3,4))
+
+summary(sigmoid.tune)
+
+best.sigmoid = sigmoid.tune$best.model
+
+sigmoid.test = predict(best.sigmoid, newdata=test)
+
+table(sigmoid.test, test$type)
+
+(82 + 35)/ 147
+
+```
+
+We finally have a test performance that is in line with the performance on the train data. It appears that we can choose the sigmoid kernel as the best predictor.
+
+Now, let's evaluate their performance along with the linear model using metrics other than just the accuracy.
+
+### Model selection
+
+We can use Caret package and utilize confusion matrix() function
+
+```{r,message=FALSE,warning=FALSE}
+confusionMatrix(sigmoid.test, test$type, positive="Yes")
+
+```
+
+* No Information Rate is the proportion of the largest class—63 percent did not have diabetes.
+* P-Value is used to test the hypothesis that the accuracy is actually better than No Information Rate.
+* We will not concern ourselves with Mcnemar's Test, which is used for the analysis of the matched pairs, primarily in epidemiology studies
+* Sensitivity is the true positive rate; in this case, the rate of those not having diabetes has been correctly identified as such.
+* Specificity is the true negative rate or, for our purposes, the rate of a diabetic that has been correctly identified.
+* The positive predictive value (Pos Pred Value) is the probability of someone in the population classified as being diabetic and truly has the disease.
+* The negative predictive value (Neg Pred Value) is the probability of someone in the  population classified as not being diabetic and truly does not have the disease.
+* Prevalence is the estimated population prevalence of the disease, calculated here as the total of the second column (the Yes column) divided by the total observations.
+* Detection Rate is the rate of the true positives that have been identified—in our case, 35—divided by the total observations.
+* Detection Prevalence is the predicted prevalence rate, or in our case, the bottom row divided by the total observations.
+* Balanced Accuracy is the average accuracy obtained from either class. This measure accounts for a potential bias in the classifier algorithm, thus potentially overpredicting the most frequent class. This is simply Sensitivity + Specificity divided by 2.
+
+The sensitivity of our model is not as powerful as we would like and tells us that we are missing some features from our dataset that would improve the rate of finding the true diabetic patients.
+
+We will now compare these results with the linear SVM, as follows:
+
+```{r,message=FALSE,warning=FALSE}
+confusionMatrix(tune.test, test$type, positive="Yes")
+
+```
+
+As we can see by comparing the two models, the linear SVM is inferior across the board. Our clear winner is the sigmoid kernel SVM. However, there is one thing that we are missing here and that is any sort of feature selection. What we have done is just thrown all the variables together as the feature input space and let the blackbox SVM calculations give us a predicted classification.
+
+### Feature selection for SVMs
+
+It will require some trial and error on your part. Again, the caret package helps out in this matter as it will run a cross-validation on a linear SVM based on the kernlab package.
+
+Following Steps are needed
+
+* Set the random seed
+* Specify the cross-validation method in the caret's rfeControl() function
+* Perform a recursive feature selection with the rfe() function
+* and then test how the model performs on the test set
+
+There are several different functions that you can use. Here we will need lrFuncs.
+
+```{r,message=FALSE,warning=FALSE}
+set.seed(123)
+
+rfeCNTL = rfeControl(functions=lrFuncs, method="cv", number=10)
+
+svm.features = rfe(train[,1:7], train[,8],sizes = c(7, 6, 5, 4), rfeControl = rfeCNTL, method = "svmLinear")
+
+svm.features
+
+
+
+```
+
+To create the svm.features object, it was important to specify the inputs and response factor, number of input features via sizes, and linear method from kernlab, which is the svmLinear syntax. 
+
+Other options are available using this method, such as svmPoly. No method for a sigmoid kernel is available. 
+
+```{r,message=FALSE,warning=FALSE}
+svm.5 <- svm(type~glu+ped+npreg+bmi+age, data=train, kernel="linear")
+
+svm.5.predict <- predict(svm.5, newdata=test[c(1,2,5,6,7)])
+
+table(svm.5.predict, test$type)
+```
+
+This did not perform as well and we can stick with the full model. You can see through trial and error how this technique can play in order to determine some simple identification of feature importance.
