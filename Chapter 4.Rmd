@@ -1,0 +1,359 @@
+# Chapter 4. Advanced Feature Selection in Linear Models
+
+### In this chapter, we will look at the concept of regularization where the coefficients are constrained or shrunk towards zero.
+
+### we will focus on Ridge regression, Least Absolute Shrinkage and Selection Operator (LASSO), and finally, Elastic net, which combines the benefit of both the techniques to one.
+
+## Regularization in a nutshell
+
+Linear regression is of model Y = B0 + B1x1 +...Bnxn + e and RSS to be  e12 + e22 + … en2
+
+With regularization, we will apply what is known as a shrinkage penalty in conjunction with the minimization RSS. This penalty consists of a lambda (symbol λ) along with the normalization of the beta coefficients and weights.
+
+Quite simply, in our model, we are minimizing (RSS + λ(normalized coefficients)).  λ is known as the tuning parameter.
+
+## Ridge regression
+
+Our model is trying to minimize RSS + λ(sum Bj2). As lambda increases, the coefficients shrink toward zero but do not ever become zero. The benefit may be an improved predictive accuracy but as it does not zero out the weights for any of your features, it could lead to issues in the model's interpretation and communication. To help with this problem, we will turn to LASSO.
+
+## Lasso
+
+Minimizes RSS + λ(sum |Bj|). This shrinkage penalty will indeed force a feature weight to zero. This is a clear advantage over ridge regression as it may greatly improve the model interpretability.
+
+### "One might expect the lasso to perform better in a setting where a relatively small number of predictors have substantial coefficients, and the remaining predictors have coefficients that are very small or that equal zero. Ridge regression will perform better when the response is a function of many predictors, all with coefficients of roughly equal size."
+
+There is the possibility of achieving the best of both the worlds and that leads us to the next topic, elastic net.
+
+## Elastic net
+
+The power of elastic net is that it performs the feature extraction that ridge regression does not and it will group the features that LASSO fails to do. 
+
+Again, LASSO will tend to select one feature from a group of correlated ones and ignore the rest.
+
+Elastic net does this by including a mixing parameter, alpha, in conjunction with lambda. Alpha will be between 0 and 1 and as before, lambda will regulate the size of the penalty. 
+
+Please note that an alpha of zero is equal to ridge regression and an alpha of one is equivalent to LASSO. Essentially, we are blending the L1 and L2 penalties by including a second tuning parameter to a quadratic (squared) term of the beta coefficients. We will end up with the goal of minimizing (RSS + λ[(1-alpha) (sum|Bj|2)/2 + alpha (sum |Bj|)])/N).
+
+We will primarily utilize the leaps, glmnet, and caret packages to select the appropriate features and thus the appropriate model in our business case.
+
+## Data understanding and preparation
+
+
+```{r,message=FALSE,warning=FALSE}
+## Loading Libraries 
+
+library(ElemStatLearn) #contains the data
+library(car) #package to calculate Variance Inflation Factor
+library(corrplot) #correlation plots
+library(leaps) #best subsets regression
+library(glmnet) #allows ridge regression, LASSO and elastic net
+library(caret) #parameter tuning
+
+data("prostate")
+str(prostate)
+
+```
+
+If you look at the features, svi, lcp, gleason, and pgg45 have the same number in the first ten observations with the exception of one—the seventh observation in gleason. 
+
+In order to make sure that these are viable as input features, we can use plots and tables so as to understand them.
+
+```{r,message=FALSE,warning=FALSE}
+plot(prostate)
+
+```
+
+
+It does look like there is a clear linear relationship between our outcomes, lpsa, and lcavol. Note that the gleason scores captured in this dataset are of four values only. If you look at the plot where train and gleason intersect, one of these values is not in either test or train.
+
+```{r,message=FALSE,warning=FALSE}
+
+plot(prostate$gleason)
+
+```
+
+seems like there's only one gleason with 8.0 and 5 gleason with 9.0
+
+We can check using table funtion
+
+```{r,message=FALSE,warning=FALSE}
+
+table(prostate$gleason)
+
+```
+
+What are our options? We could do any of the following:
+
+Exclude the feature altogether
+Remove only the scores of 8.0 and 9.0
+Recode this feature, creating an indicator variable
+
+I think it may help if we create a boxplot of Gleason Score versus Log of PSA (LPSA is the outcome)
+
+```{r,message=FALSE,warning=FALSE}
+
+boxplot(prostate$lpsa~prostate$gleason, xlab="Gleason Score", ylab="Log of PSA")
+
+```
+
+Looking at the preceding plot, I think the best option will be to turn this into an indicator variable with 0 being a 6 score and 1 being a 7 or a higher score. 
+
+Removing the feature may cause a loss of predictive ability. The missing values will also not work with the glmnet package that we will use.
+
+```{r,message=FALSE,warning=FALSE}
+
+prostate$gleason = ifelse(prostate$gleason == 6, 0, 1)
+
+table(prostate$gleason)
+
+```
+
+Now let's check the correlation
+
+```{r,message=FALSE,warning=FALSE}
+
+p.cor = cor(prostate)
+
+corrplot.mixed(p.cor)
+```
+
+First, PSA is highly correlated with the log of cancer volume (lcavol). 
+
+Second, multicollinearity may become an issue; for example, cancer volume is also correlated with capsular penetration and this is correlated with the seminal vesicle invasion.
+
+We need to subset train and test set and remove train column
+
+```{r,message=FALSE,warning=FALSE}
+
+train = subset(prostate, train==TRUE)[,1:9]
+test = subset(prostate, train==FALSE)[,1:9]
+
+str(train)
+str(test)
+```
+
+
+For comparison purposes, we will create a model using best subsets regression like the previous two chapters and then utilize the regularization techniques.
+
+### Best subsets
+
+Similar to previous chapter using leaps package
+
+```{r,message=FALSE,warning=FALSE}
+subfit <- regsubsets(lpsa~., data=train)
+
+b.sum = summary(subfit)
+
+which.min(b.sum$bic)
+
+plot(b.sum$bic, type="l", xlab="# of Features", ylab="BIC",  main="BIC score by Feature Inclusion")
+
+plot(subfit, scale="bic", main="Best Subset Features")
+
+## Choosing the best 3 predictors
+ols = lm(lpsa~lcavol+lweight+gleason, data=train)
+
+plot(ols$fitted.values, train$lpsa, xlab="Predicted",  ylab="Actual", main="Predicted vs Actual")
+
+```
+
+Since the plot looks linear, non constant variance should not be a problem
+
+```{r,message=FALSE,warning=FALSE}
+pred.subfit = predict(ols, newdata=test)
+
+plot(pred.subfit, test$lpsa , xlab="Predicted", ylab="Actual", main="Predicted vs Actual")
+
+resid.subfit = test$lpsa - pred.subfit
+
+mean(resid.subfit^2)
+
+```
+
+
+So, MSE of 0.508 is our benchmark for going forward.
+
+### Ridge regression
+
+
+The package that we will use and is in fact already loaded, is glmnet. The package requires that the input features are in a matrix instead of a data frame.
+
+```{r,message=FALSE,warning=FALSE}
+x <- as.matrix(train[,1:8])
+
+y <- train[ ,9]
+```
+
+For ridge regression alpha = 0.
+
+
+```{r,message=FALSE,warning=FALSE}
+ridge = glmnet(x, y, family="gaussian", alpha=0)
+
+print(ridge)
+
+```
+
+Check that number of features included are 8 throughout. We also see that the percent of deviance explained is .6971 and the Lambda tuning parameter for this row is 0.08789. Let's take 0.1 as lambda
+
+```{r,message=FALSE,warning=FALSE}
+plot(ridge)
+
+plot(ridge,xvar = "dev", label = TRUE)
+
+plot(ridge,xvar = "lambda", label = TRUE)
+
+```
+
+This is a worthwhile plot as it shows that as lambda decreases, the shrinkage parameter decreases and the absolute values of the coefficients increase.
+
+To see the coefficients at a specific lambda value, use the coef() command. 
+
+```{r,message=FALSE,warning=FALSE}
+coef(ridge, s=0.1,exact = TRUE)
+
+```
+
+It is important to note that age, lcp, and pgg45 are close to, but not quite, zero
+
+To check on training set, we need to transform test set as well similar to train set
+
+```{r,message=FALSE,warning=FALSE}
+newx <- as.matrix(test[,1:8])
+
+ridge.y = predict(ridge, newx=newx, type="response", s=0.1)
+
+plot(ridge.y, test$lpsa, xlab="Predicted", ylab="Actual",main="Ridge Regression")
+
+ridge.resid = ridge.y - test$lpsa
+mean(ridge.resid^2)
+
+```
+
+MSE = 0.4783559 for Ridge regression. Better than best subset.
+
+## Lasso
+
+```{r,message=FALSE,warning=FALSE}
+lasso = glmnet(x, y, family="gaussian", alpha=1)
+
+print(lasso)
+```
+
+Note that model building process stopped at 69. At first glance, here it seems that all the eight features should be in the model with a lambda of 0.001572. However, let's try and find and test a model with fewer features, around seven, for argument's sake
+
+```{r,message=FALSE,warning=FALSE}
+plot(lasso, xvar="lambda", label=TRUE)
+
+lasso.coef = coef(lasso, s=0.045, exact=TRUE)
+
+lasso.coef
+```
+At lambda = 0.045, lcp got to zero.
+
+```{r,message=FALSE,warning=FALSE}
+lasso.y = predict(lasso, newx=newx, type="response", s=0.045)
+
+plot(lasso.y, test$lpsa, xlab="Predicted", ylab="Actual", main="LASSO")
+
+lasso.resid = lasso.y - test$lpsa
+
+mean(lasso.resid^2)
+
+##0.4437209 better than Ridge
+```
+
+Now lets check Elastic Net
+
+## Elastic Net
+
+We will use Caret package for this. We want to focus on finding the optimal mix of lambda and our elastic net mixing parameter, alpha. this is done using Caret package
+
+We can do this in 3 simple steps
+
+* Use the expand.grid() function in base R to create a vector of all the possible combinations of alpha and lambda that we want to investigate.
+* Use the trainControl() function from the caret package to determine the resampling method; we will use LOOCV as we did in Chapter 2, Linear Regression – The Blocking and Tackling of Machine Learning.
+* Train a model to select our alpha and lambda parameters using glmnet() in caret's train() function.
+
+Our grid of combinations should be large enough to capture the best model but not too large that it becomes computationally unfeasible. 
+
+* alpha from 0 to 1 by 0.2 increments; remember that this is bound by 0 and 1
+* lambda from 0.00 to 0.2 in steps of 0.02; the 0.2 lambda should provide a cushion from what we found in ridge regression (lambda=0.1) and LASSO (lambda=0.045)
+
+```{r,message=FALSE,warning=FALSE}
+grid <- expand.grid(.alpha=seq(0,1, by=.2), .lambda=seq(0.00,0.2, by=0.02))
+
+grid
+
+table(grid)
+```
+
+
+For the resampling method, we will put in the code for LOOCV for the method. There are other resampling alternatives such as bootstrapping or k-fold cross-validation and numerous options that you can use with trainControl(), but we will explore these later
+
+You can tell the model selection criteria with selectionFunction() in trainControl(). For quantitative responses, the algorithm will select based on its default of Root Mean Square Error (RMSE),
+
+```{r,message=FALSE,warning=FALSE}
+control = trainControl(method="LOOCV")
+
+enet.train = train(lpsa~., data=train, method="glmnet", trControl=control, tuneGrid=grid)
+
+enet.train
+
+enet = glmnet(x, y,family="gaussian", alpha=0, lambda=.08)
+
+coef(enet, s=.08, exact=TRUE)
+
+enet.y = predict(enet, newx=newx, type="response", s=.08)
+
+plot(enet.y, test$lpsa, xlab="Predicted", ylab="Actual", main="Elastic Net")
+
+enet.resid = (enet.y - test$lpsa)
+
+mean(enet.resid^2)
+
+## 0.4795019 not as good as Lasso
+
+```
+
+We may be overfitting since Lasso did the best. We can use a 10-fold cross-validation in the glmnet package to possibly identify a better solution.
+
+## Cross-validation with glmnet
+
+We have used LOOCV with the caret package; now we will try k-fold cross-validation.
+
+The glmnet package defaults to ten folds when estimating lambda in cv.glmnet().
+
+In k-fold CV, the data is partitioned into an equal number of subsets (folds) and a separate model is built on each k-1 set and then tested on the corresponding holdout set with the results combined (averaged) to determine the final parameters. 
+
+In this method, each fold is used as a test set only once. The glmnet package makes it very easy to try this and will provide you with an output of the lambda values and the corresponding MSE. It defaults to alpha = 1, so if you want to try ridge regression or an elastic net mix, you will need to specify it
+
+```{r,message=FALSE,warning=FALSE}
+set.seed(317)
+
+lasso.cv = cv.glmnet(x, y)
+
+plot(lasso.cv)
+
+```
+
+
+The two dotted vertical lines signify the minimum of MSE (left line) and one standard error from the minimum (right line). One standard error away from the minimum is a good place to start if you have an over-fitting problem. You can also call the exact values of these two lambdas, as follows:
+
+```{r,message=FALSE,warning=FALSE}
+lasso.cv$lambda.min #minimum
+
+lasso.cv$lambda.1se #one standard error away
+
+coef(lasso.cv, s ="lambda.1se")
+
+lasso.y.cv = predict(lasso.cv, newx=newx, type="response", s="lambda.1se")
+
+lasso.cv.resid = lasso.y.cv - test$lpsa
+
+mean(lasso.cv.resid^2)
+```
+
+This model achieves an error of 0.46 with just five features, zeroing out age, lcp, and pgg45.
+
+On a pure error, LASSO with seven features performed the best. However, does this best address the question that we are trying to answer? Perhaps the more parsimonious model that we found using CV with a lambda of ~0.165 is more appropriate. My inclination is to put forth the latter as it is more interpretable.
